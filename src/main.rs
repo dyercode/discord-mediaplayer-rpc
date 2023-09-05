@@ -4,7 +4,7 @@ use dbus::message::MatchRule;
 use dbus::nonblock::stdintf::org_freedesktop_dbus::Properties;
 use dbus::nonblock::{Proxy, SyncConnection};
 use dbus_tokio::connection::{self, IOResource};
-use discord_rpc_client::Client as DiscordClient;
+use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use futures::prelude::*;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -16,8 +16,7 @@ const SERVICE: &str = "org.mpris.MediaPlayer2.audacious";
 const PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
 const _PROPERTY_INTERFACE_NAME: &str = "org.freedesktop.DBus.Properties";
 
-// todo - move to config.
-const CLIENT_ID: u64 = 0;
+const CLIENT_ID: &str = "1048886631823843368"; // should be safe to leave public.
 
 mod keys {
     pub const TITLE: &str = "xesam:title";
@@ -112,26 +111,31 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::sync::mpsc::channel(25);
 
     let _discord_client = tokio::spawn(async move {
-        let mut rpc: DiscordClient = DiscordClient::new(CLIENT_ID);
-        rpc.start();
+        let mut client = DiscordIpcClient::new(CLIENT_ID).expect("client failed to init");
+        client.connect().expect("couldn't connect client");
         while let Some(mi_mb) = rx.recv().await {
             // todo - refactor out all the formatting.
             match mi_mb {
                 (Some(mi), PlaybackStatus::Playing) => {
-                    let _ = rpc.set_activity(|act| {
+                    let album_line = format!("From {}", mi.album);
+                    let artist_title_line = format!("Playing {} - {}", mi.artist, mi.title);
+                    let activity = {
                         if !mi.album.is_empty() {
-                            act.state(format!("From {}", mi.album))
-                                .details(format!("Playing {} - {}", mi.artist, mi.title))
+                            activity::Activity::new()
+                                .state(&album_line)
+                                .details(&artist_title_line)
                         } else {
-                            act.details(format!("Playing {} - {}", mi.artist, mi.title))
+                            activity::Activity::new().details(&artist_title_line)
                         }
-                    });
+                    };
+
+                    let _ = client.set_activity(activity);
                 }
                 (Some(_), _) => {
-                    let _ = rpc.clear_activity();
+                    let _ = client.clear_activity();
                 }
                 (None, _) => {
-                    let _ = rpc.clear_activity();
+                    let _ = client.clear_activity();
                 }
             }
         }
