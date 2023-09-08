@@ -15,6 +15,7 @@ jobs:
       - name:                   Install deps
         run: |
           apt-get update
+          apt-cache search dbus
           apt-get install -y dbus pkg-config
       - name:                   Generate code coverage
         run: |
