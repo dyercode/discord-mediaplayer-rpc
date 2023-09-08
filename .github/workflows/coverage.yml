@@ -14,8 +14,8 @@ jobs:
 
       - name:                   Install deps
         run: |
-          apt update
-          apt install dbus pkg-config
+          apt-get update
+          apt-get install -y dbus pkg-config
       - name:                   Generate code coverage
         run: |
           cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out xml
