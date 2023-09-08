@@ -4,7 +4,7 @@ use dbus::message::MatchRule;
 use dbus::nonblock::stdintf::org_freedesktop_dbus::Properties;
 use dbus::nonblock::{Proxy, SyncConnection};
 use dbus_tokio::connection::{self, IOResource};
-use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use discord_presence::Client;
 use futures::prelude::*;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ const SERVICE: &str = "org.mpris.MediaPlayer2.audacious";
 const PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
 const _PROPERTY_INTERFACE_NAME: &str = "org.freedesktop.DBus.Properties";
 
-const CLIENT_ID: &str = "1048886631823843368"; // should be safe to leave public.
+const CLIENT_ID: u64 = 1048886631823843368; // should be safe to leave public.
 
 mod keys {
     pub const TITLE: &str = "xesam:title";
@@ -111,25 +111,19 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::sync::mpsc::channel(25);
 
     let _discord_client = tokio::spawn(async move {
-        let mut client = DiscordIpcClient::new(CLIENT_ID).expect("client failed to init");
-        client.connect().expect("couldn't connect client");
+        // let mut client = DiscordIpcClient::new(CLIENT_ID).expect("client failed to init");
+        let mut client = Client::new(CLIENT_ID);
+        let _ = client.start();
+        // client.connect().expect("couldn't connect client");
         while let Some(mi_mb) = rx.recv().await {
             // todo - refactor out all the formatting.
             match mi_mb {
                 (Some(mi), PlaybackStatus::Playing) => {
-                    let album_line = format!("From {}", mi.album);
-                    let artist_title_line = format!("Playing {} - {}", mi.artist, mi.title);
-                    let activity = {
-                        if !mi.album.is_empty() {
-                            activity::Activity::new()
-                                .state(&album_line)
-                                .details(&artist_title_line)
-                        } else {
-                            activity::Activity::new().details(&artist_title_line)
-                        }
-                    };
-
-                    let _ = client.set_activity(activity);
+                    let activity: Activity = mi.into();
+                    let _ = client.set_activity(|act| match activity.state {
+                        Some(album) => act.state(album).details(activity.details),
+                        None => act.details(activity.details),
+                    });
                 }
                 (Some(_), _) => {
                     let _ = client.clear_activity();
@@ -149,7 +143,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .for_each(|(_, _): (_, (String,))| {
             async {
                 // todo - find way to verify that this is from audacious
-                let status = read_playback_status(&proxy).await;
+                let status: PlaybackStatus = read_playback_status(&proxy).await;
                 if let PlaybackStatus::Paused | PlaybackStatus::Playing = status {
                     if let Some(mi) = read_metadata(&proxy).await {
                         println!("{}", mi);
@@ -172,4 +166,53 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     stream_fut.await;
     Ok(())
+}
+
+struct Activity {
+    state: Option<String>,
+    details: String,
+}
+
+impl From<MediaInfo> for Activity {
+    fn from(mi: MediaInfo) -> Self {
+        match mi.album {
+            a if a.is_empty() => Activity {
+                state: None,
+                details: format!("Playing {} - {}", mi.artist, mi.title),
+            },
+            album => Activity {
+                state: Some(format!("From {}", album)),
+                details: format!("Playing {} - {}", mi.artist, mi.title),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activity_has_album_as_state_when_present() {
+        let media_info = MediaInfo {
+            album: "album".to_owned(),
+            artist: "artist".to_owned(),
+            title: "title".to_owned(),
+        };
+
+        let result: Activity = media_info.into();
+        assert_eq!(result.state, Some("From album".to_owned()));
+    }
+
+    #[test]
+    fn activity_has_no_state_when_album_empty() {
+        let media_info = MediaInfo {
+            album: "".to_owned(),
+            artist: "artist".to_owned(),
+            title: "title".to_owned(),
+        };
+
+        let result: Activity = media_info.into();
+        assert!(result.state.is_none());
+    }
 }
