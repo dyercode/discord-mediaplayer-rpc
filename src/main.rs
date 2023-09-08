@@ -71,6 +71,7 @@ async fn read_metadata(proxy: &Proxy<'_, Arc<SyncConnection>>) -> Option<MediaIn
         .flatten()
 }
 
+#[derive(Debug, PartialEq)]
 enum PlaybackStatus {
     Stopped,
     Playing,
@@ -214,5 +215,40 @@ mod tests {
 
         let result: Activity = media_info.into();
         assert!(result.state.is_none());
+    }
+
+    #[test]
+    fn parsing_playback_status_closed_when_no_value_present() {
+        parse_playback(None);
+    }
+
+    #[test]
+    fn parsing_playback_paused() {
+        assert_eq!(
+            parse_playback(Some("Paused".to_string())),
+            PlaybackStatus::Paused
+        );
+    }
+
+    #[test]
+    fn parsing_playback_playing() {
+        assert_eq!(
+            parse_playback(Some("Playing".to_string())),
+            PlaybackStatus::Playing
+        );
+    }
+
+    #[test]
+    fn parsing_playback_stopped() {
+        assert_eq!(
+            parse_playback(Some("Stopped".to_string())),
+            PlaybackStatus::Stopped
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn parsing_playback_status_panics_when_unknown_status() {
+        parse_playback(Some("Fish".to_owned()));
     }
 }
