@@ -112,10 +112,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::sync::mpsc::channel(25);
 
     let _discord_client = tokio::spawn(async move {
-        // let mut client = DiscordIpcClient::new(CLIENT_ID).expect("client failed to init");
         let mut client = Client::new(CLIENT_ID);
         let _ = client.start();
-        // client.connect().expect("couldn't connect client");
         while let Some(mi_mb) = rx.recv().await {
             // todo - refactor out all the formatting.
             match mi_mb {
