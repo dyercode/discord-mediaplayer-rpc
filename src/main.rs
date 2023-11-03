@@ -34,7 +34,8 @@ struct MediaInfo {
 
 impl Display for MediaInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} - {} on {}", self.artist, self.title, self.album)
+        let on = if self.album.is_empty() { "" } else {" on "};
+        write!(f, "{} - {}{}{}", self.artist, self.title, on, self.album)
     }
 }
 
