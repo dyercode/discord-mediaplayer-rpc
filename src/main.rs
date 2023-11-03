@@ -6,12 +6,13 @@ use dbus::nonblock::{Proxy, SyncConnection};
 use dbus_tokio::connection::{self, IOResource};
 use discord_presence::Client;
 use futures::prelude::*;
+use log::{debug, info};
+use std::env;
 use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 use stream_cancel::{StreamExt, Tripwire};
 use tokio::sync::mpsc::{Receiver, Sender};
-use log::info;
 
 const SERVICE: &str = "org.mpris.MediaPlayer2.audacious";
 const PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
@@ -34,7 +35,7 @@ struct MediaInfo {
 
 impl Display for MediaInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let on = if self.album.is_empty() { "" } else {" on "};
+        let on = if self.album.is_empty() { "" } else { " on " };
         write!(f, "{} - {}{}{}", self.artist, self.title, on, self.album)
     }
 }
@@ -90,15 +91,20 @@ type PlayingMessage = (Option<MediaInfo>, PlaybackStatus);
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    debug!("started");
     let (resource, conn): (IOResource<SyncConnection>, Arc<SyncConnection>) =
         connection::new_session_sync()?;
 
+    debug!("connection created");
     // The resource is a task that should be spawned onto a tokio compatible
     // reactor ASAP. If the resource ever finishes, you lost connection to D-Bus.
     tokio::spawn(async {
         let err = resource.await;
+        debug!("panicking cause debus connection {}", err);
         panic!("Lost connection to D-Bus: {}", err);
     });
+
+    debug!("connection spawned");
 
     let rule = MatchRule::new_signal("org.freedesktop.DBus.Properties", "PropertiesChanged")
         .with_path("/org/mpris/MediaPlayer2");
@@ -114,11 +120,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx): (Sender<PlayingMessage>, Receiver<PlayingMessage>) =
         tokio::sync::mpsc::channel(25);
 
+    debug!("channel created");
+
     let _discord_client = tokio::spawn(async move {
         let mut client = Client::new(CLIENT_ID);
         let _ = client.start();
+        debug!("discord client started");
         while let Some(mi_mb) = rx.recv().await {
-            // todo - refactor out all the formatting.
             match mi_mb {
                 (Some(mi), PlaybackStatus::Playing) => {
                     let activity: Activity = mi.into();
@@ -137,6 +145,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    debug!("discord client spawned");
+
     // todo - set state at this app's startup.
     let (trigger, tripwire) = Tripwire::new();
     let (signal, stream) = conn.add_match(rule).await?.stream();
@@ -145,7 +155,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .for_each(|(_, _): (_, (String,))| {
             async {
                 // todo - find way to verify that this is from audacious
+                debug!("about to read a playback status");
                 let status: PlaybackStatus = read_playback_status(&proxy).await;
+                debug!("read a playback status");
                 if let PlaybackStatus::Paused | PlaybackStatus::Playing = status {
                     if let Some(mi) = read_metadata(&proxy).await {
                         info!("{}", mi);
@@ -160,13 +172,22 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // tokio::time::sleep(Duration::new(60, 0)).await;
-    tokio::spawn(async move {
-        let mut buffer = String::new();
-        let _ = std::io::stdin().read_line(&mut buffer);
-        let _ = conn.remove_match(signal.token()).await;
-        drop(trigger);
-    });
+    match env::args().nth(1) {
+        Some(arg) if arg == "-d" => debug!("running in daemon mode"),
+        _ => {
+            debug!("running in console mode ");
+            tokio::spawn(async move {
+                let mut buffer = String::new();
+                debug!("pausing forever (until newln)");
+                let _ = std::io::stdin().read_line(&mut buffer);
+                debug!("done waiting forever `{}`", buffer);
+                let _ = conn.remove_match(signal.token()).await;
+                drop(trigger);
+            });
+        }
+    }
     stream_fut.await;
+    debug!("future ended");
     Ok(())
 }
 
