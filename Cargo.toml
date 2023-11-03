@@ -9,8 +9,10 @@ edition = "2021"
 dbus = "0.9.6"
 dbus-tokio = "0.7.5"
 discord-presence = "0.5.18"
+env_logger = "0.10.0"
 # discord-rich-presence = "0.2.3"
 # discord-rpc-client = { version = "0.3.0", features = ["rich_presence"]}
 futures = "0.3.25"
+log = "0.4.20"
 stream-cancel = "0.8.1"
 tokio = { version = "1.22.0", features = ["full"]}

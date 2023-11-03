@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use stream_cancel::{StreamExt, Tripwire};
 use tokio::sync::mpsc::{Receiver, Sender};
+use log::info;
 
 const SERVICE: &str = "org.mpris.MediaPlayer2.audacious";
 const PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
@@ -87,6 +88,7 @@ type PlayingMessage = (Option<MediaInfo>, PlaybackStatus);
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
     let (resource, conn): (IOResource<SyncConnection>, Arc<SyncConnection>) =
         connection::new_session_sync()?;
 
@@ -145,11 +147,11 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let status: PlaybackStatus = read_playback_status(&proxy).await;
                 if let PlaybackStatus::Paused | PlaybackStatus::Playing = status {
                     if let Some(mi) = read_metadata(&proxy).await {
-                        println!("{}", mi);
+                        info!("{}", mi);
                         let _ = tx.send((Some(mi), status)).await;
                     }
                 } else {
-                    println!("not playing");
+                    info!("not playing");
                     let _ = tx.send((None, status)).await;
                 }
                 tokio::task::yield_now().await
