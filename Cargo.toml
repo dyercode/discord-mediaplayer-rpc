@@ -6,13 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dbus = "0.9.6"
-dbus-tokio = "0.7.5"
-discord-presence = "0.5.18"
-env_logger = "0.10.0"
+anyhow = "1.0.88"
+dbus = "0.9.7"
+dbus-tokio = "0.7.6"
+discord-presence = "1.3.0"
+env_logger = "0.11.5"
 # discord-rich-presence = "0.2.3"
 # discord-rpc-client = { version = "0.3.0", features = ["rich_presence"]}
-futures = "0.3.25"
-log = "0.4.20"
-stream-cancel = "0.8.1"
-tokio = { version = "1.22.0", features = ["full"]}
+futures = "0.3.30"
+log = "0.4.22"
+stream-cancel = "0.8.2"
+tokio = { version = "1.40.0", features = ["full"]}

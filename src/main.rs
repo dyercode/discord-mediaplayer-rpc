@@ -1,3 +1,5 @@
+extern crate futures;
+use anyhow::anyhow;
 use dbus::arg;
 use dbus::arg::PropMap;
 use dbus::message::MatchRule;
@@ -5,7 +7,7 @@ use dbus::nonblock::stdintf::org_freedesktop_dbus::Properties;
 use dbus::nonblock::{Proxy, SyncConnection};
 use dbus_tokio::connection::{self, IOResource};
 use discord_presence::Client;
-use futures::prelude::*;
+use futures::{prelude::*, TryFutureExt};
 use log::{debug, info};
 use std::env;
 use std::fmt::Display;
@@ -40,14 +42,14 @@ impl Display for MediaInfo {
     }
 }
 
-fn parse_metadata(metadata: &PropMap) -> Option<MediaInfo> {
+fn parse_metadata(metadata: &PropMap) -> anyhow::Result<MediaInfo> {
     match (
         arg::prop_cast(metadata, keys::TITLE).cloned(),
         arg::prop_cast(metadata, keys::ALBUM).cloned(),
         arg::prop_cast::<Vec<String>>(metadata, keys::ARTIST).cloned(),
     ) {
-        (None, None, None) => None,
-        (title, album, artist) => Some(MediaInfo {
+        (None, None, None) => Err(anyhow!("no track data returned")),
+        (title, album, artist) => Ok(MediaInfo {
             title: title.unwrap_or_default(),
             album: album.unwrap_or_default(),
             artist: artist.unwrap_or_default().join(" & "),
@@ -65,13 +67,12 @@ fn parse_playback(playback: Option<String>) -> PlaybackStatus {
     }
 }
 
-async fn read_metadata(proxy: &Proxy<'_, Arc<SyncConnection>>) -> Option<MediaInfo> {
+async fn read_metadata(proxy: &Proxy<'_, Arc<SyncConnection>>) -> anyhow::Result<MediaInfo> {
     proxy
         .get(PLAYER_INTERFACE, "Metadata")
+        .map_err(|_| anyhow!("dbus error"))
+        .and_then(|md: PropMap| async move { parse_metadata(&md) })
         .await
-        .map(|md| parse_metadata(&md))
-        .ok()
-        .flatten()
 }
 
 #[derive(Debug, PartialEq)]
@@ -105,7 +106,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     debug!("connection spawned");
-
     let rule = MatchRule::new_signal("org.freedesktop.DBus.Properties", "PropertiesChanged")
         .with_path("/org/mpris/MediaPlayer2");
 
@@ -124,7 +124,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _discord_client = tokio::spawn(async move {
         let mut client = Client::new(CLIENT_ID);
-        let _ = client.start();
+        client.start();
         debug!("discord client started");
         while let Some(mi_mb) = rx.recv().await {
             match mi_mb {
@@ -159,10 +159,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let status: PlaybackStatus = read_playback_status(&proxy).await;
                 debug!("read a playback status");
                 if let PlaybackStatus::Paused | PlaybackStatus::Playing = status {
-                    if let Some(mi) = read_metadata(&proxy).await {
-                        info!("{}", mi);
-                        let _ = tx.send((Some(mi), status)).await;
-                    }
+                    let _ = read_metadata(&proxy)
+                        .and_then(|mi| {
+                            info!("{}", mi);
+                            tx.send((Some(mi), status))
+                                .map_err(|_| anyhow!("error sending metadata and status"))
+                        })
+                        .await;
                 } else {
                     info!("not playing");
                     let _ = tx.send((None, status)).await;
