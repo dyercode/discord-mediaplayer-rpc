@@ -6,7 +6,6 @@
 
     crane = {
       url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
 
     fenix = {
@@ -36,11 +35,11 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = nixpkgs.legacyPackages.${system};
 
         inherit (pkgs) lib;
 
-        craneLib = crane.mkLib nixpkgs.legacyPackages.${system};
+        craneLib = crane.mkLib pkgs;
         src = craneLib.cleanCargoSource (craneLib.path ./.);
 
         # Common arguments can be set here to avoid repeating them later
@@ -144,6 +143,7 @@
             pkg-config
             sccache
             openssl
+            cargo-edit
             # pkgs.ripgrep
           ];
 
